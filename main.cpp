@@ -7,7 +7,7 @@
 #include <cmath>
 #include <dlfcn.h>
 
-MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.0, RusJJ)
+MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.0.1, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY(net.rusjj.basslib)
@@ -48,7 +48,7 @@ ISAUtils* sautils = nullptr;
 
 uintptr_t pGTASA = 0;
 void* pGTASAHandle = nullptr;
-void* pSaved[2];
+//void* pSaved[2];
 struct timeval pTimeNow;
 time_t lCurrentS;
 time_t lCurrentMs;
@@ -65,6 +65,8 @@ void (*SetFontAlphaFade)(float alpha);
 bool (*PrintString)(float x, float y, unsigned short* gxtText);
 void (*AsciiToGxt)(const char* txt, unsigned short* saveTo);
 void (*RenderFontBuffer)(void);
+int* ScreenX;
+int* ScreenY;
 
 uint32_t pCurrentRadio = 0;
 const char** pRadioStreams;
@@ -95,13 +97,15 @@ DECL_HOOK(void, PreRenderEnd, void* self)
     PreRenderEnd(self);
     if(bIsRadioShouldBeRendered)
     {
-        SetFontScale(2.0f, 2.0f);
+        static float flScale;
+        flScale = 2160.0f / (float)*ScreenY;
+        SetFontScale(flScale, flScale);
         SetFontColor(bIsRadioStarted ? &clrRadioPlaying : &clrRadioLoading);
         SetFontStyle(STYLE_LOGOSTYLED);
         SetFontEdge(1);
         SetFontAlignment(ALIGN_CENTER);
         //SetFontAlphaFade(1.0f);
-        PrintString(0.5f * *(int*)(pGTASA + 0x6855B4), 0.02f * *(int*)(pGTASA + 0x6855B8), pGXT);
+        PrintString(0.5f * *ScreenX, 0.02f * *ScreenY, pGXT);
         RenderFontBuffer();
     }
 }
@@ -123,7 +127,6 @@ DECL_HOOK(bool, ResumeGame, void* self)
     return ResumeGame(self);
 }
 
-extern void (*StartRadio)(void* self, void* radio);
 void VolumeChanged(int oldVal, int newVal)
 {
     pRadioVolume->SetInt(newVal);
@@ -133,11 +136,15 @@ void VolumeChanged(int oldVal, int newVal)
 static char szNewText[0xFF];
 void DoRadio()
 {
+    nRadioIndex = pCurrentRadioIndex->GetInt();
     if(nRadioIndex < 0) nRadioIndex = nRadiosCount - 1;
     if(nRadioIndex >= nRadiosCount) nRadioIndex = 0;
-    BASS->ChannelStop(pCurrentRadio);
-    BASS->StreamFree(pCurrentRadio);
-    pCurrentRadio = 0;
+    if(pCurrentRadio)
+    {
+        BASS->ChannelStop(pCurrentRadio);
+        BASS->StreamFree(pCurrentRadio);
+        pCurrentRadio = 0;
+    }
     bIsRadioStarted = false;
     bIsRadioShouldBeRendered = true;
 
@@ -165,14 +172,15 @@ void DoRadio()
         //StartRadio(pSaved[0], pSaved[1]);
     }
 }
-DECL_HOOK(void, StartRadio, void* self, void* radio)
+DECL_HOOK(void, StartRadio, uintptr_t self, uintptr_t vehicleInfo)
 {
-    pSaved[0] = self;
-    pSaved[1] = radio;
-    std::thread(DoRadio).detach();
+    //pSaved[0] = self;
+    //pSaved[1] = vehicleInfo;
+    if(*(bool*)(vehicleInfo + 27) != 0)
+        std::thread(DoRadio).detach();
 }
 
-DECL_HOOK(void, StopRadio, void* self, void* radio)
+DECL_HOOK(void, StopRadio, uintptr_t self, uintptr_t vehicleInfo, unsigned char flag)
 {
     if(!IsGamePaused())
     {
@@ -180,9 +188,10 @@ DECL_HOOK(void, StopRadio, void* self, void* radio)
         BASS->ChannelStop(pCurrentRadio);
         BASS->StreamFree(pCurrentRadio);
         pCurrentRadio = 0;
+        nRadioIndex = -1;
     }
     bIsRadioShouldBeRendered = false;
-    StopRadio(self, radio);
+    StopRadio(self, vehicleInfo, flag);
 }
 
 #define TOUCH_UNPRESS 1
@@ -195,9 +204,9 @@ DECL_HOOK(void, TouchEvent, int type, int finger, int x, int y)
     if(bIsRadioShouldBeRendered) switch(type)
     {
         case TOUCH_PRESS:
-            if(y < *(int*)(pGTASA + 0x6855B8) * 0.135f && x > *(int*)(pGTASA + 0x6855B4) * 0.33f && x < *(int*)(pGTASA + 0x6855B4) * 0.66f)
+            if(y < *ScreenY * 0.135f && x > *ScreenX * 0.33f && x < *ScreenX * 0.66f)
             {
-                if(x > *(int*)(pGTASA + 0x6855B4) * 0.5f)
+                if(x > *ScreenX * 0.5f)
                 {
                     ++nRadioIndex;
                 }
@@ -234,7 +243,7 @@ extern "C" void OnModLoad()
         if(pCurrentRadioIndex->GetInt() < 0) pCurrentRadioIndex->SetInt(0);
         if(pCurrentRadioIndex->GetInt() > MAX_RADIOS) pCurrentRadioIndex->SetInt(MAX_RADIOS);
 
-        nRadioIndex = pCurrentRadioIndex->GetInt();
+        nRadioIndex = -1;
         pRadioStreams = new const char*[nRadiosCount];
         pRadioNames = new const char*[nRadiosCount];
         for(int i = 0; i < nRadiosCount; ++i)
@@ -264,11 +273,14 @@ extern "C" void OnModLoad()
     AsciiToGxt = (void(*)(const char* txt, unsigned short* saveTo))dlsym(pGTASAHandle, "_Z14AsciiToGxtCharPKcPt");
     RenderFontBuffer = (void(*)(void))dlsym(pGTASAHandle, "_ZN5CFont16RenderFontBufferEv");
 
+    ScreenX = (int*)(pGTASA + 0x6855B4);
+    ScreenY = (int*)(pGTASA + 0x6855B8);
+
     HOOKPLT(PreRenderEnd, pGTASA + 0x674188);
     HOOKPLT(PauseGame, pGTASA + 0x672644);
     HOOKPLT(ResumeGame, pGTASA + 0x67056C);
-    HOOKPLT(StartRadio, pGTASA + 0x672B14);
-    HOOKPLT(StopRadio, pGTASA + 0x66F524);
+    HOOKPLT(StartRadio, pGTASA + 0x66F738);
+    HOOKPLT(StopRadio, pGTASA + 0x671284);
     HOOKPLT(TouchEvent, pGTASA + 0x675DE4);
 
     sautils = (ISAUtils*)GetInterface("SAUtils");
