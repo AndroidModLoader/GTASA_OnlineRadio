@@ -7,7 +7,7 @@
 #include <cmath>
 #include <dlfcn.h>
 
-MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.0.1, RusJJ)
+MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.0.2, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY(net.rusjj.basslib)
@@ -98,7 +98,7 @@ DECL_HOOK(void, PreRenderEnd, void* self)
     if(bIsRadioShouldBeRendered)
     {
         static float flScale;
-        flScale = 2160.0f / (float)*ScreenY;
+        flScale = (float)*ScreenY / 540.0f;
         SetFontScale(flScale, flScale);
         SetFontColor(bIsRadioStarted ? &clrRadioPlaying : &clrRadioLoading);
         SetFontStyle(STYLE_LOGOSTYLED);
