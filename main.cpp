@@ -48,7 +48,6 @@ ISAUtils* sautils = nullptr;
 
 uintptr_t pGTASA = 0;
 void* pGTASAHandle = nullptr;
-//void* pSaved[2];
 struct timeval pTimeNow;
 time_t lCurrentS;
 time_t lCurrentMs;
@@ -65,6 +64,7 @@ void (*SetFontAlphaFade)(float alpha);
 bool (*PrintString)(float x, float y, unsigned short* gxtText);
 void (*AsciiToGxt)(const char* txt, unsigned short* saveTo);
 void (*RenderFontBuffer)(void);
+uintptr_t (*FindPlayerVehicle)(int playerId, bool includeRemote);
 int* ScreenX;
 int* ScreenY;
 
@@ -174,9 +174,7 @@ void DoRadio()
 }
 DECL_HOOK(void, StartRadio, uintptr_t self, uintptr_t vehicleInfo)
 {
-    //pSaved[0] = self;
-    //pSaved[1] = vehicleInfo;
-    if(*(bool*)(vehicleInfo + 27) != 0)
+    if(FindPlayerVehicle(-1, false) != 0)
         std::thread(DoRadio).detach();
 }
 
@@ -263,25 +261,26 @@ extern "C" void OnModLoad()
         cfg->Save();
     }
 
-    SetFontScale = (void(*)(float x, float y))dlsym(pGTASAHandle, "_ZN5CFont8SetScaleEf");
-    SetFontColor = (void(*)(CRGBA* clr))dlsym(pGTASAHandle, "_ZN5CFont8SetColorE5CRGBA");
-    SetFontStyle = (void(*)(unsigned char style))dlsym(pGTASAHandle, "_ZN5CFont12SetFontStyleEh");
-    SetFontEdge = (void(*)(signed char countOf))dlsym(pGTASAHandle, "_ZN5CFont7SetEdgeEa");
-    SetFontAlignment = (void(*)(unsigned char countOf))dlsym(pGTASAHandle, "_ZN5CFont14SetOrientationEh");
-    SetFontAlphaFade = (void(*)(float alpha))dlsym(pGTASAHandle, "_ZN5CFont12SetAlphaFadeEf");
-    PrintString = (bool(*)(float x, float y, unsigned short* gxtText))dlsym(pGTASAHandle, "_ZN5CFont11PrintStringEffPt");
-    AsciiToGxt = (void(*)(const char* txt, unsigned short* saveTo))dlsym(pGTASAHandle, "_Z14AsciiToGxtCharPKcPt");
-    RenderFontBuffer = (void(*)(void))dlsym(pGTASAHandle, "_ZN5CFont16RenderFontBufferEv");
+    SetFontScale =      (void(*)(float, float))dlsym(pGTASAHandle, "_ZN5CFont8SetScaleEf");
+    SetFontColor =      (void(*)(CRGBA*))dlsym(pGTASAHandle, "_ZN5CFont8SetColorE5CRGBA");
+    SetFontStyle =      (void(*)(unsigned char))dlsym(pGTASAHandle, "_ZN5CFont12SetFontStyleEh");
+    SetFontEdge =       (void(*)(signed char))dlsym(pGTASAHandle, "_ZN5CFont7SetEdgeEa");
+    SetFontAlignment =  (void(*)(unsigned char))dlsym(pGTASAHandle, "_ZN5CFont14SetOrientationEh");
+    SetFontAlphaFade =  (void(*)(float))dlsym(pGTASAHandle, "_ZN5CFont12SetAlphaFadeEf");
+    PrintString =       (bool(*)(float, float, unsigned short*))dlsym(pGTASAHandle, "_ZN5CFont11PrintStringEffPt");
+    AsciiToGxt =        (void(*)(const char*, unsigned short*))dlsym(pGTASAHandle, "_Z14AsciiToGxtCharPKcPt");
+    RenderFontBuffer =  (void(*)(void))dlsym(pGTASAHandle, "_ZN5CFont16RenderFontBufferEv");
+    FindPlayerVehicle = (uintptr_t(*)(int, bool))dlsym(pGTASAHandle, "_Z17FindPlayerVehicleib");
 
     ScreenX = (int*)(pGTASA + 0x6855B4);
     ScreenY = (int*)(pGTASA + 0x6855B8);
 
     HOOKPLT(PreRenderEnd, pGTASA + 0x674188);
-    HOOKPLT(PauseGame, pGTASA + 0x672644);
-    HOOKPLT(ResumeGame, pGTASA + 0x67056C);
-    HOOKPLT(StartRadio, pGTASA + 0x66F738);
-    HOOKPLT(StopRadio, pGTASA + 0x671284);
-    HOOKPLT(TouchEvent, pGTASA + 0x675DE4);
+    HOOKPLT(PauseGame,    pGTASA + 0x672644);
+    HOOKPLT(ResumeGame,   pGTASA + 0x67056C);
+    HOOKPLT(StartRadio,   pGTASA + 0x66F738);
+    HOOKPLT(StopRadio,    pGTASA + 0x671284);
+    HOOKPLT(TouchEvent,   pGTASA + 0x675DE4);
 
     sautils = (ISAUtils*)GetInterface("SAUtils");
     sautils = (ISAUtils*)GetInterface("SAUtils");
