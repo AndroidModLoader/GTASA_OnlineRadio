@@ -7,7 +7,13 @@
 #include <cmath>
 #include <dlfcn.h>
 
-MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.1, RusJJ)
+#include <Events.h>
+#include <engine/Font.h>
+#include <engine/RsGlobal.h>
+#include <base/Timer.h>
+#include <entity/PlayerPed.h>
+
+MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.2, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY(net.rusjj.basslib)
@@ -15,30 +21,7 @@ END_DEPLIST()
 
 #define MAX_RADIOS 32
 
-#define STYLE_GOTHIC 0
-#define STYLE_REGULAR 1
-#define STYLE_PRESSED 2
-#define STYLE_LOGOSTYLED 3
 
-#define ALIGN_CENTER 0
-#define ALIGN_LEFT 1
-#define ALIGN_RIGHT 2
-
-class CRGBA
-{
-public:
-	union {
-		struct { unsigned char red, green, blue, alpha; };
-    };
-	CRGBA() {}
-	CRGBA(unsigned char red, unsigned char green, unsigned char blue, unsigned char alpha)
-	{
-		this->red = red;
-		this->green = green;
-		this->blue = blue;
-		this->alpha = alpha;
-	}
-};
 
 #include "ibass.h"
 IBASS* BASS = nullptr;
@@ -57,27 +40,13 @@ time_t lCurrentMs;
 ConfigEntry* pCurrentRadioIndex;
 ConfigEntry* pRadioVolume;
 
-void (*SetFontScale)(float x, float y);
-void (*SetFontColor)(CRGBA* clr);
-void (*SetFontStyle)(unsigned char style);
-void (*SetFontEdge)(signed char countOf);
-void (*SetFontAlignment)(unsigned char align);
-void (*SetFontAlphaFade)(float alpha);
-bool (*PrintString)(float x, float y, unsigned short* gxtText);
-void (*AsciiToGxt)(const char* txt, unsigned short* saveTo);
-void (*RenderFontBuffer)(void);
-uintptr_t (*FindPlayerVehicle)(int playerId, bool includeRemote);
-int* ScreenX;
-int* ScreenY;
-bool* bGamePaused;
-
 uint32_t pCurrentRadio = 0;
 const char** pRadioStreams;
 const char** pRadioNames;
 char nRadiosCount, nRadioIndex;
 bool bIsRadioStarted = false;
 bool bIsRadioShouldBeRendered = false;
-unsigned short* pGXT = new unsigned short[0xFF];
+GxtChar RadioGXT[256] { 0 };
 CRGBA clrRadioLoading(255, 228, 181, 255);
 CRGBA clrRadioPlaying(255, 255, 255, 255);
 
@@ -93,25 +62,6 @@ inline time_t GetCurrentTimeMs()
     lCurrentMs = (1000 * pTimeNow.tv_sec) + (0.001f * pTimeNow.tv_usec);
     return lCurrentMs;
 }
-inline bool IsGamePaused() { return *bGamePaused; };
-
-DECL_HOOK(void, PreRenderEnd, void* self)
-{
-    PreRenderEnd(self);
-    if(bIsRadioShouldBeRendered)
-    {
-        static float flScale;
-        flScale = (float)*ScreenY / 540.0f;
-        SetFontScale(flScale, flScale);
-        SetFontColor(bIsRadioStarted ? &clrRadioPlaying : &clrRadioLoading);
-        SetFontStyle(STYLE_LOGOSTYLED);
-        SetFontEdge(1);
-        SetFontAlignment(ALIGN_CENTER);
-        //SetFontAlphaFade(1.0f);
-        PrintString(0.5f * *ScreenX, 0.02f * *ScreenY, pGXT);
-        RenderFontBuffer();
-    }
-}
 
 DECL_HOOK(bool, PauseGame, void* self)
 {
@@ -119,7 +69,6 @@ DECL_HOOK(bool, PauseGame, void* self)
     if(pCurrentRadio != 0) BASS->ChannelPause(pCurrentRadio);
     return PauseGame(self);
 }
-
 DECL_HOOK(bool, ResumeGame, void* self)
 {
     if(pCurrentRadio != 0)
@@ -129,13 +78,15 @@ DECL_HOOK(bool, ResumeGame, void* self)
     }
     return ResumeGame(self);
 }
-
 void VolumeChanged(int oldVal, int newVal, void* data)
 {
     pRadioVolume->SetInt(newVal);
     BASS->ChannelSetAttribute(pCurrentRadio, BASS_ATTRIB_VOL, 0.005f * newVal);
     cfg->Save();
 }
+
+
+
 static char szNewText[0xFF];
 bool bRadioPending = false;
 void DoRadio()
@@ -155,7 +106,7 @@ void DoRadio()
     bIsRadioShouldBeRendered = true;
 
     sprintf(szNewText, "< Current radiostation >~n~%s", pRadioNames[nRadioIndex]);
-    AsciiToGxt(szNewText, pGXT);
+    AsciiToGxtChar(szNewText, RadioGXT);
     char myIndex = nRadioIndex;
     auto currentRadio = BASS->StreamCreateURL(pRadioStreams[nRadioIndex], 0, BASS_STREAM_BLOCK | BASS_STREAM_STATUS | BASS_STREAM_AUTOFREE | BASS_SAMPLE_FLOAT, 0);
     if(currentRadio)
@@ -164,7 +115,7 @@ void DoRadio()
         {
             pCurrentRadio = currentRadio;
             BASS->ChannelSetAttribute(pCurrentRadio, BASS_ATTRIB_VOL, 0.005f * pRadioVolume->GetInt());
-            if(!IsGamePaused()) BASS->ChannelPlay(pCurrentRadio, true);
+            if(!CTimer::IsPaused()) BASS->ChannelPlay(pCurrentRadio, true);
             bRadioPending = false;
         }
         else
@@ -186,7 +137,7 @@ DECL_HOOK(void, StartRadio, uintptr_t self, uintptr_t vehicleInfo)
 
 DECL_HOOK(void, StopRadio, uintptr_t self, uintptr_t vehicleInfo, unsigned char flag)
 {
-    if(!IsGamePaused())
+    if(!CTimer::IsPaused())
     {
         bIsRadioStarted = false;
         BASS->ChannelStop(pCurrentRadio);
@@ -198,38 +149,9 @@ DECL_HOOK(void, StopRadio, uintptr_t self, uintptr_t vehicleInfo, unsigned char 
     StopRadio(self, vehicleInfo, flag);
 }
 
-#define TOUCH_UNPRESS 1
-#define TOUCH_PRESS 2
-#define TOUCH_MOVE 3
-DECL_HOOK(void, TouchEvent, int type, int finger, int x, int y)
-{
-    if(bIsRadioShouldBeRendered) switch(type)
-    {
-        case TOUCH_PRESS:
-            if(!bRadioPending && y < *ScreenY * 0.135f && x > *ScreenX * 0.33f && x < *ScreenX * 0.66f)
-            {
-                if(x > *ScreenX * 0.5f)
-                {
-                    ++nRadioIndex;
-                }
-                else
-                {
-                    --nRadioIndex;
-                }
-                pCurrentRadioIndex->SetInt(nRadioIndex);
-                cfg->Save();
-                std::thread(DoRadio).detach();
-            }
-            break;
-        // No slider for ya
-    }
-    TouchEvent(type, finger, x, y);
-}
-
 static char szTemp[16];
-extern "C" void OnModLoad()
+ON_MOD_LOAD()
 {
-    pGXT[0] = 0;
     pGTASA = aml->GetLib("libGTASA.so");
     hGTASA = aml->GetLibHandle("libGTASA.so");
 
@@ -258,33 +180,62 @@ extern "C" void OnModLoad()
         else if(pRadioVolume->GetInt() < 0) pRadioVolume->SetInt(0);
         cfg->Save();
     }
+    else 
+    {
+        logger->Error("There is no radios in the config! Mod is not loaded.");
+        return;
+    }
 
-    SET_TO(SetFontScale,        aml->GetSym(hGTASA, "_ZN5CFont8SetScaleEf"));
-    SET_TO(SetFontColor,        aml->GetSym(hGTASA, "_ZN5CFont8SetColorE5CRGBA"));
-    SET_TO(SetFontStyle,        aml->GetSym(hGTASA, "_ZN5CFont12SetFontStyleEh"));
-    SET_TO(SetFontEdge,         aml->GetSym(hGTASA, "_ZN5CFont7SetEdgeEa"));
-    SET_TO(SetFontAlignment,    aml->GetSym(hGTASA, "_ZN5CFont14SetOrientationEh"));
-    SET_TO(SetFontAlphaFade,    aml->GetSym(hGTASA, "_ZN5CFont12SetAlphaFadeEf"));
-    SET_TO(PrintString,         aml->GetSym(hGTASA, "_ZN5CFont11PrintStringEffPt"));
-    SET_TO(AsciiToGxt,          aml->GetSym(hGTASA, "_Z14AsciiToGxtCharPKcPt"));
-    SET_TO(RenderFontBuffer,    aml->GetSym(hGTASA, "_ZN5CFont16RenderFontBufferEv"));
-    SET_TO(FindPlayerVehicle,   aml->GetSym(hGTASA, "_Z17FindPlayerVehicleib"));
+    HOOKPLT(PauseGame,          pGTASA + BYBIT(0x672644, 0x844230));
+    HOOKPLT(ResumeGame,         pGTASA + BYBIT(0x67056C, 0x840CB0));
+    HOOKPLT(StartRadio,         pGTASA + BYBIT(0x66F738, 0x83F5C0));
+    HOOK(StopRadio,             aml->GetSym(hGTASA, "_ZN20CAERadioTrackManager9StopRadioEP21tVehicleAudioSettingsh"));
 
-    SET_TO(ScreenX,             pGTASA + 0x6855B4);
-    SET_TO(ScreenY,             pGTASA + 0x6855B8);
-    SET_TO(bGamePaused,         aml->GetSym(hGTASA, "_ZN6CTimer11m_UserPauseE"));
-
-    HOOKPLT(PreRenderEnd,       pGTASA + 0x674188);
-    HOOKPLT(PauseGame,          pGTASA + 0x672644);
-    HOOKPLT(ResumeGame,         pGTASA + 0x67056C);
-    HOOKPLT(StartRadio,         pGTASA + 0x66F738);
-    HOOKPLT(StopRadio,          pGTASA + 0x671284);
-    HOOKPLT(TouchEvent,         pGTASA + 0x675DE4);
-
-    aml->PlaceB(pGTASA + 0x2A4D28 + 0x1, pGTASA + 0x2A4D3C + 0x1); // Remove radio from Audio settings
+    aml->PlaceB(pGTASA + BYBIT(0x2A4D28 + 0x1, 0x3638A4), pGTASA + BYBIT(0x2A4D3C + 0x1, 0x3638C0)); // Remove radio from Audio settings
     sautils = (ISAUtils*)GetInterface("SAUtils");
     if(sautils)
     {
         sautils->AddSliderItem(SetType_Audio, "Online-Radio Volume", pRadioVolume->GetInt(), 0, 100, VolumeChanged);
     }
+
+    Events::drawHudEvent.after += []()
+    {
+        if(bIsRadioShouldBeRendered)
+        {
+            float flScale = (float)RsGlobal.maximumHeight / 540.0f;
+            CFont::SetScale(flScale);
+            CFont::SetColor(bIsRadioStarted ? clrRadioPlaying : clrRadioLoading);
+            CFont::SetFontStyle(FO_FONT_STYLE_HEADING);
+            CFont::SetEdge(1);
+            CFont::SetOrientation(ALIGN_CENTER);
+            //SetFontAlphaFade(1.0f);
+            CFont::PrintString(0.5f * RsGlobal.maximumWidth, 0.02f * RsGlobal.maximumHeight, RadioGXT);
+            CFont::RenderFontBuffer();
+        }
+    };
+
+    Events::touchScreenEvent.after += [](int type, int finger, int x, int y)
+    {
+        if(bIsRadioShouldBeRendered && type == 2 /*TOUCH_PRESS*/)
+        {
+            if(!bRadioPending &&
+                y < (RsGlobal.maximumHeight * 0.135f) &&
+                x > (RsGlobal.maximumWidth * 0.33f) &&
+                x < (RsGlobal.maximumWidth * 0.66f) )
+            {
+                if(x > (RsGlobal.maximumWidth * 0.5f) )
+                {
+                    ++nRadioIndex;
+                }
+                else
+                {
+                    --nRadioIndex;
+                }
+                pCurrentRadioIndex->SetInt(nRadioIndex);
+                cfg->Save();
+                std::thread(DoRadio).detach();
+            }
+            // No slider for y'all
+        }
+    };
 }

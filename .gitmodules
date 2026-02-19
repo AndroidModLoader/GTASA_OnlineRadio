@@ -1,0 +1,3 @@
+[submodule "aml-psdk-gtasa"]
+	path = aml-psdk-gtasa
+	url = https://github.com/AndroidModLoader/aml-psdk-gtasa
