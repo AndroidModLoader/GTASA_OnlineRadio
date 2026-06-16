@@ -1,6 +1,8 @@
 #include <mod/amlmod.h>
 #include <mod/logger.h>
 #include <mod/config.h>
+#include <atomic>
+#include <mutex>
 #include <thread>
 #include <sys/time.h>
 #include <ctime>
@@ -13,7 +15,7 @@
 #include <base/Timer.h>
 #include <entity/PlayerPed.h>
 
-MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.2, RusJJ)
+MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.3, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY(net.rusjj.basslib)
@@ -88,45 +90,50 @@ void VolumeChanged(int oldVal, int newVal, void* data)
 
 
 static char szNewText[0xFF];
-bool bRadioPending = false;
+std::atomic<unsigned int> nRadioGen{0};
+std::mutex radioMutex;
 void DoRadio()
 {
-    if(bRadioPending) return;
-    bRadioPending = true;
+    unsigned int myGen = nRadioGen.fetch_add(1) + 1;
 
-    nRadioIndex = pCurrentRadioIndex->GetInt();
-    if(nRadioIndex < 0) nRadioIndex = nRadiosCount - 1;
-    if(nRadioIndex >= nRadiosCount) nRadioIndex = 0;
-    if(pCurrentRadio)
+    int idx = pCurrentRadioIndex->GetInt();
+    if(idx < 0) idx = nRadiosCount - 1;
+    if(idx >= nRadiosCount) idx = 0;
     {
-        BASS->ChannelStop(pCurrentRadio);
-        BASS->StreamFree(pCurrentRadio);
-        pCurrentRadio = 0;
+        std::lock_guard<std::mutex> lk(radioMutex);
+        if(myGen != nRadioGen.load()) return;
+        
+        nRadioIndex = idx;
+        if(pCurrentRadio)
+        {
+            BASS->ChannelStop(pCurrentRadio);
+            BASS->StreamFree(pCurrentRadio);
+            pCurrentRadio = 0;
+        }
+        bIsRadioStarted = false;
+        bIsRadioShouldBeRendered = true;
+        sprintf(szNewText, "< Current radiostation >~n~%s", pRadioNames[idx]);
+        AsciiToGxtChar(szNewText, RadioGXT);
     }
-    bIsRadioShouldBeRendered = true;
 
-    sprintf(szNewText, "< Current radiostation >~n~%s", pRadioNames[nRadioIndex]);
-    AsciiToGxtChar(szNewText, RadioGXT);
-    char myIndex = nRadioIndex;
-    auto currentRadio = BASS->StreamCreateURL(pRadioStreams[nRadioIndex], 0, BASS_STREAM_BLOCK | BASS_STREAM_STATUS | BASS_STREAM_AUTOFREE | BASS_SAMPLE_FLOAT, 0);
+    auto currentRadio = BASS->StreamCreateURL(pRadioStreams[idx], 0, BASS_STREAM_BLOCK | BASS_STREAM_STATUS | BASS_STREAM_AUTOFREE | BASS_SAMPLE_FLOAT, 0);
+
+    std::lock_guard<std::mutex> lk(radioMutex);
+    if(myGen != nRadioGen.load())
+    {
+        if(currentRadio) BASS->StreamFree(currentRadio);
+        return;
+    }
     if(currentRadio)
     {
-        if(nRadioIndex == myIndex)
-        {
-            pCurrentRadio = currentRadio;
-            BASS->ChannelSetAttribute(pCurrentRadio, BASS_ATTRIB_VOL, 0.005f * pRadioVolume->GetInt());
-            if(!CTimer::IsPaused()) BASS->ChannelPlay(pCurrentRadio, true);
-            bRadioPending = false;
-        }
-        else
-        {
-            BASS->StreamFree(currentRadio);
-        }
+        pCurrentRadio = currentRadio;
+        BASS->ChannelSetAttribute(pCurrentRadio, BASS_ATTRIB_VOL, 0.005f * pRadioVolume->GetInt());
+        bIsRadioStarted = true;
+        if(!CTimer::IsPaused()) BASS->ChannelPlay(pCurrentRadio, true);
     }
     else
     {
         logger->Error("Failed to open stream! Error Code: %d", BASS->ErrorGetCode());
-        //StartRadio(pSaved[0], pSaved[1]);
     }
 }
 DECL_HOOK(void, StartRadio, uintptr_t self, uintptr_t vehicleInfo)
@@ -137,15 +144,22 @@ DECL_HOOK(void, StartRadio, uintptr_t self, uintptr_t vehicleInfo)
 
 DECL_HOOK(void, StopRadio, uintptr_t self, uintptr_t vehicleInfo, unsigned char flag)
 {
-    if(!CTimer::IsPaused())
+    nRadioGen.fetch_add(1);
     {
-        bIsRadioStarted = false;
-        BASS->ChannelStop(pCurrentRadio);
-        BASS->StreamFree(pCurrentRadio);
-        pCurrentRadio = 0;
-        nRadioIndex = -1;
+        std::lock_guard<std::mutex> lk(radioMutex);
+        if(!CTimer::IsPaused())
+        {
+            bIsRadioStarted = false;
+            if(pCurrentRadio)
+            {
+                BASS->ChannelStop(pCurrentRadio);
+                BASS->StreamFree(pCurrentRadio);
+                pCurrentRadio = 0;
+            }
+            nRadioIndex = -1;
+        }
+        bIsRadioShouldBeRendered = false;
     }
-    bIsRadioShouldBeRendered = false;
     StopRadio(self, vehicleInfo, flag);
 }
 
@@ -218,7 +232,7 @@ ON_MOD_LOAD()
     {
         if(bIsRadioShouldBeRendered && type == 2 /*TOUCH_PRESS*/)
         {
-            if(!bRadioPending &&
+            if(/*!bRadioPending &&*/
                 y < (RsGlobal.maximumHeight * 0.135f) &&
                 x > (RsGlobal.maximumWidth * 0.33f) &&
                 x < (RsGlobal.maximumWidth * 0.66f) )
