@@ -51,6 +51,7 @@ bool bIsRadioShouldBeRendered = false;
 GxtChar RadioGXT[256] { 0 };
 CRGBA clrRadioLoading(255, 228, 181, 255);
 CRGBA clrRadioPlaying(255, 255, 255, 255);
+CRGBA clrRadioOutline(  0,   0,   0, 255);
 
 inline time_t GetCurrentTimeS()
 {
@@ -224,6 +225,9 @@ ON_MOD_LOAD()
             CFont::SetOrientation(ALIGN_CENTER);
             CFont::SetProportional(1);
             CFont::SetAlphaFade(255.0f);
+            CFont::SetBackground(0, 1);
+            CFont::SetBackgroundColor(clrRadioOutline);
+            CFont::SetOutlinePosition(1);
             CFont::PrintString(0.5f * RsGlobal.maximumWidth, 0.02f * RsGlobal.maximumHeight, RadioGXT);
             CFont::RenderFontBuffer();
         }
