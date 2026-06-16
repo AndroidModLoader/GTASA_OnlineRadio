@@ -223,7 +223,7 @@ ON_MOD_LOAD()
             CFont::SetEdge(1);
             CFont::SetOrientation(ALIGN_CENTER);
             CFont::SetProportional(1);
-            //SetFontAlphaFade(1.0f);
+            CFont::SetAlphaFade(255.0f);
             CFont::PrintString(0.5f * RsGlobal.maximumWidth, 0.02f * RsGlobal.maximumHeight, RadioGXT);
             CFont::RenderFontBuffer();
         }
