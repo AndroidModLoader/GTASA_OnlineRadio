@@ -227,6 +227,7 @@ ON_MOD_LOAD()
             CFont::SetAlphaFade(255.0f);
             CFont::SetBackground(0, 1);
             CFont::SetBackgroundColor(clrRadioOutline);
+            CFont::SetDropColor(clrRadioOutline);
             CFont::SetOutlinePosition(1);
             CFont::PrintString(0.5f * RsGlobal.maximumWidth, 0.02f * RsGlobal.maximumHeight, RadioGXT);
             CFont::RenderFontBuffer();
