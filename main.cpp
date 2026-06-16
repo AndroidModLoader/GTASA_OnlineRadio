@@ -15,7 +15,7 @@
 #include <base/Timer.h>
 #include <entity/PlayerPed.h>
 
-MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.3, RusJJ)
+MYMODCFG(net.rusjj.gtasa.onlineradio, GTA:SA Online Radio, 1.2, RusJJ)
 NEEDGAME(com.rockstargames.gtasa)
 BEGIN_DEPLIST()
     ADD_DEPENDENCY(net.rusjj.basslib)
@@ -222,6 +222,7 @@ ON_MOD_LOAD()
             CFont::SetFontStyle(FO_FONT_STYLE_HEADING);
             CFont::SetEdge(1);
             CFont::SetOrientation(ALIGN_CENTER);
+            CFont::SetProportional(1);
             //SetFontAlphaFade(1.0f);
             CFont::PrintString(0.5f * RsGlobal.maximumWidth, 0.02f * RsGlobal.maximumHeight, RadioGXT);
             CFont::RenderFontBuffer();
